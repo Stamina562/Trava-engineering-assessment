@@ -1,43 +1,69 @@
-Hey Trava team — thanks for the thoughtful and open-ended challenge. I enjoyed thinking through the problem and came up with a solution that balances technical implementation with user experience, scalability, and team ownership. Below is a breakdown of the approach I’d take if I were handling this request in real life.
+# Trava Engineering Assessment – URL Shortening for Filtered Table Views
 
-The Request (TL;DR)
-"The table URLs are super useful but also super long. Can we shorten them?"
+Hi Trava team — thanks for the great prompt. I appreciated how open-ended this challenge was and had fun thinking through it. Below is a practical solution that I believe balances usability, technical trade-offs, and long-term maintainability. This is how I'd approach solving the problem in a real product environment.
 
-From the CEO’s message, it's clear this is about improving shareability and aesthetics for URLs that encode filter and sort state for a large user table. We want shorter, cleaner URLs without sacrificing current functionality like shareable deep links.
+---
 
-Goals
-Preserve full filter/sort/search state
+## The Request
 
-Allow users to share a link that encodes the current view
+> “The table URLs are super useful but also super long. Can we shorten them?”
 
-Make URLs much shorter and cleaner
-`
-Be easy to implement and maintain without huge infrastructure changes
+Totally makes sense. The table URL encodes a lot of filtering and sorting logic, which is great for deep-linking, but as more filters are added, the URL gets pretty unwieldy.
 
-High-Level Solution
-Instead of putting every filter in the query string, we can:
+We want to:
 
-Option 1: Encode State into a Compact String
-Use base64 or a custom URL-safe compression format (like LZ-string) to compress the full filter/sort state into a single string param like ?state=...
+- Preserve the current functionality (filters, sorts, search, deep-linking)
+- Make the URL significantly shorter and cleaner
+- Avoid large infrastructure changes or over-engineering
 
-Option 2: Store State on the Backend
-Instead of encoding state in the URL, generate a short ID (e.g., stamina1004) and store the full filter config server-side. Then use URLs like:
+---
 
-ruby
-Copy
-Edit
-https://app.coolcompany.com/users/view/stamina1004
-My Chosen Approach: Hybrid
-Compress the state client-side into a short token (LZ-string), optionally fallback to backend storage for very large states.
+## Goals
 
-This avoids backend dependency in the simple case, keeps URLs reasonably short, and scales with more advanced usage.
+- Preserve full filter/sort/search state
+- Allow users to share a link that reliably restores the same table view
+- Make URLs shorter and easier to share
+- Keep the solution lightweight and easy to maintain
 
-Pseudocode for Frontend Compression
-js
-Copy
-Edit
-// Utility: Convert state object to compressed string
-import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
+---
+
+## High-Level Approach
+
+There are a couple of valid ways to tackle this:
+
+### Option 1: Client-Side Compression
+
+Compress the entire table state into a single string using a URL-safe compression library like [`lz-string`](https://www.npmjs.com/package/lz-string). Instead of this: /users?first_name=John&first_name_op=eq&age=30&age_op=gte&sort=age&sort_dir=asc
+
+We’d get: /users?state=N4IgzgTgpg...
+
+
+The compressed string contains all the filter/sort logic, just packed into one query parameter.
+
+### Option 2: Backend-Persisted Views
+
+Store the full state server-side and return a short ID (e.g., `abc123`). The frontend URL becomes: /users/view/abc123
+
+
+This is ideal for saved views or sharing across teams, but requires API/storage support.
+
+---
+
+## My Recommended Approach: Hybrid
+
+Start with client-side compression (fast, no infra), and support backend-stored views as an optional fallback for large states or saved views.
+
+This covers 90% of use cases without requiring a new backend service, but still allows us to scale up the feature later.
+
+---
+
+## Pseudocode – Frontend State Compression
+
+```js
+import {
+  compressToEncodedURIComponent,
+  decompressFromEncodedURIComponent
+} from 'lz-string';
 
 function saveStateToURL(state) {
   const compressed = compressToEncodedURIComponent(JSON.stringify(state));
@@ -53,91 +79,95 @@ function readStateFromURL() {
   const decompressed = decompressFromEncodedURIComponent(compressed);
   return JSON.parse(decompressed);
 }
-Example compressed URL:
 
-perl
-Copy
-Edit
-https://app.coolcompany.com/users?state=N4IgzgTg...
-Backend Support (Optional for Large States)
-If we go backend route for large or shared presets:
+Backend Option – API View Storage (Optional)
+If/when we need to support persistent saved views or large filter states:
 
-POST the full state to /api/view/save
+API Example
+POST /api/view/save
+Returns: { "id": "abc123" }
 
-Get back a short hash or UUID (stamina1004)
+GET /api/view/:id
+Returns the full filter/sort state
 
-Redirect or update URL to /users/view/stamina1004
+Stored View Format
 
-On page load, fetch state from /api/view/stamina1004
-
-Example Schema
-json
-Copy
-Edit
 {
-  "id": "stamina1004",
+  "id": "abc123",
   "user_id": "optional",
-  "created_at": "...",
+  "created_at": "2025-03-25T10:00:00Z",
   "state": {
     "filters": [...],
     "sort": {...},
     "search": "..."
   }
 }
-⚖️ Pros & Cons
-Option	Pros	Cons
-Compression (LZ)	No backend infra needed, instant, easy to implement	Still visible in URL, can get long if lots of filters
-Backend Storage	Clean URLs, scalable, easy to reuse views or presets	Adds infra complexity, requires persistence layer
-Hybrid (Best of both)	Short by default, flexible for advanced use	Slightly more logic, must decide when to fallback
-Testing & Monitoring
-Unit Tests
-Serialize/deserialize state correctly
 
-Edge cases: invalid state, empty filters, large states
+## Pros and Cons
+
+| Approach               | Pros                                               | Cons                                                   |
+|------------------------|----------------------------------------------------|--------------------------------------------------------|
+| Client-side compression | Lightweight, fast, no backend changes              | Still exposes full state (compressed) in the URL       |
+| Backend storage        | Cleanest URLs, great for saved views               | Requires backend API and persistence layer             |
+| Hybrid (recommended)   | Flexible, scalable, minimal infrastructure needed  | Slightly more complexity in implementation             |
+
+
+Testing Strategy
+Unit Tests
+Validate compression/decompression
+
+Handle edge cases (empty filters, malformed state, max length)
 
 Integration Tests
-Sharing a link reproduces exact same table view
+Sharing a compressed URL reproduces the correct view
 
-Legacy URLs (query params) still work
+Legacy query param support still works
 
-Monitoring
-Add metrics for:
+Monitoring Ideas
+Log errors when parsing ?state=
 
-State size distributions
+Track size distribution of states for future backend cutoff
 
-Most common filters used
+Track usage of shared/saved links
 
-Log errors in parsing state from URL (if malformed)
+Development Plan
+Day 1
+Respond to CEO:
 
-Planning & Communication
-Day 1: Respond to CEO
-"Yes — great catch! I’ve got a quick win in mind where we compress the filter state into one short string. This will clean up the URLs without breaking any functionality. I’ll have a prototype up shortly."
+“Yes — we can compress the state into one query parameter using a safe encoding format. This should make the URLs much shorter without losing functionality. I’ll have a working version ready shortly.”
 
-Day 2–3: Build & Validate
-Frontend compression via LZ-string
+Day 2–3
+Implement compression + URL update
 
-Backwards compatibility: still parse legacy query params
+Parse legacy URLs for backward compatibility
 
-Metrics + error logging
+Add metrics + error logging
 
-Day 4+: Optional Enhancements
-Backend endpoint for stored views (for persistent or shared presets)
+Day 4+
+(Optional) Add backend endpoint for saved views
 
-Save named views
+Support named views (e.g., “All Trial Users Over 30”)
 
-Make state URL expire after X days (optional cleanup)
+Add a "Copy short link" UI element
 
-Future Improvements
-Allow users to name saved views
+Future Iterations
+Shareable named views across the org
 
-Share a view with org or team
+Expiring saved states
 
-Add a history of recently used filters
+History of recent views
 
-Build a "share this view" button that shortens link automatically
+Support for exporting/importing view configs
 
-Wrap-Up
-This feature is a solid example of balancing UX, tech debt, and product polish. A compressed URL approach is fast, user-friendly, and gets us 90% of the way there. From there, we can scale into more advanced sharing or storage options as the product grows.
+Final Thoughts
+This kind of polish makes a big UX difference, and we can deliver most of the value with minimal overhead. I’d start with the compressed URL approach and layer in backend support if usage or needs grow.
 
-Thanks again — happy to chat through trade-offs or sketch out an implementation plan!
+Happy to dive deeper or prototype anything discussed here.
+
+– Ryan
+
+
+---
+
+Let me know if you'd like me to generate the folder structure (`src/`, `api/`, etc.) and commit-ready files as well.
 
