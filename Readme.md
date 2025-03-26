@@ -169,5 +169,3 @@ Happy to dive deeper or prototype anything discussed here.
 
 ---
 
-Let me know if you'd like me to generate the folder structure (`src/`, `api/`, etc.) and commit-ready files as well.
-
